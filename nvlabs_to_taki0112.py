@@ -17,7 +17,7 @@ import dnnlib
 import dnnlib.tflib as tflib
 import config
 import tensorflow as tf
-import sys
+import sys, time
 
 """parsing and configuration"""
 def parse_args():
@@ -82,6 +82,22 @@ def handle_extra_args(args):
     args.seed = True
     return args
 
+def make_temp_dataset_file(dataset_dir):
+    filename = dataset_dir + "/nvlabs_to_taki0112_tempfile.png"
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    with open(filename, "w") as f:
+        f.write("this file is safe to delete")
+    # give it a second
+    time.sleep(1)
+    return filename
+
+def delete_temp_dataset_file(args, dataset_dir, filename):
+    try:
+        os.remove(filename)
+        if len(os.listdir(dataset_dir)) == 0:
+            os.rmdir(dataset_dir)
+    except OSError as e:
+        print ("Error: %s - %s." % (e.filename, e.strerror))
 
 """main"""
 def main():
@@ -95,18 +111,26 @@ def main():
     if args is None:
         exit()
     
-    
-    
     checkpoint_dir = args.checkpoint_dir
     nvlabs_stylegan_pkl_name = args.nvlabs
     # the taki0112 StyleGAN models expect the following naming prefix
     model_name = "StyleGAN.model"
     
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
-    
-        gan = StyleGAN(sess, args)
+        
 
+        # this is a hack since the taki0112 expects a dataset folder which may not exist
+        dataset = args.dataset
+        dataset_dir = "./dataset/" + dataset
+        temp_dataset_file = make_temp_dataset_file(dataset_dir)
+        
+        # build the taki0112 StyleGAN architecture (vanilla Tensorflow)
+        gan = StyleGAN(sess, args)
         gan.build_model()
+        
+        # remove the temp file and the directory if it is empty
+        delete_temp_dataset_file(args, dataset_dir, temp_dataset_file)
+        
         # now that a progressive model is built, turn off progressive
         # the progressive structure is needed to copy over from NVlabs, but you won't need this in training later
         # basically, this just saves this out in a folder without the _progressive tag in the directory name
