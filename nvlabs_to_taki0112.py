@@ -31,7 +31,7 @@ def parse_args():
                         
     parser.add_argument("--gpu_num", type=int, default=1, help="The number of gpu")
 
-    parser.add_argument("--sn", type=str2bool, default=False, help="use spectral normalization")
+    # parser.add_argument("--sn", type=str2bool, default=False, help="use spectral normalization")
 
     parser.add_argument("--img_size", type=int, default=1024, help="The target size of image")
 
@@ -43,9 +43,10 @@ def parse_args():
 
     # Extra args for taki0112 code
     # Do not change these args, the code will automatically set them for you
-    parser.add_argument('--start_res', help=argparse.SUPPRESS)
-    parser.add_argument('--progressive', help=argparse.SUPPRESS)
-    parser.add_argument('--phase', help=argparse.SUPPRESS)
+    parser.add_argument("--start_res", help=argparse.SUPPRESS)
+    parser.add_argument("--sn", help=argparse.SUPPRESS)
+    parser.add_argument("--progressive", help=argparse.SUPPRESS)
+    parser.add_argument("--phase", help=argparse.SUPPRESS)
 
     args = parser.parse_args()
     args = check_args(args)
@@ -67,9 +68,12 @@ def check_args(args):
 def handle_extra_args(args):
     # these are things you either do not need for this script, or can be set automatically
     args.start_res = args.img_size
-    # assuming you are trasnferring from a progressive NVlabs StyleGAN model
+    # assuming you are transferring from a progressive NVlabs StyleGAN model
     # though when you continue training you likely do not want it progressive any more
     args.progressive = True
+    # NVlabs didn't use spectral normalization.
+    # Arguably you could turn it on here, but it might require much more training...
+    args.sn = False
     args.phase = "train"
     # preempt the taki0112 code from making needless directories...
     args.sample_dir = args.result_dir
@@ -132,8 +136,10 @@ def main():
         delete_temp_dataset_file(args, dataset_dir, temp_dataset_file)
         
         # now that a progressive model is built, turn off progressive
-        # the progressive structure is needed to copy over from NVlabs, but you won't need this in training later
-        # basically, this just saves this out in a folder without the _progressive tag in the directory name
+        # the progressive structure is needed to copy over from NVlabs,
+        #       but you won't need this in training later
+        # basically, this just saves this out in a folder without
+        #       the _progressive tag in the directory name
         # this shouldn't cause any weird side effects. Probably.
         args.progressive = False
         gan.progressive = False
@@ -183,7 +189,8 @@ def main():
             temp_vals = sess.run([new, old])
             if new.shape != old.shape:
                 # you need a transpose with perm # old = tf.reshape(old, tf.shape(new))
-                # DO NOT USE RESHAPE (made this mistake here and the results work but are quite terrifying)
+                # DO NOT USE RESHAPE
+                # (made this mistake here and the results work but are quite terrifying)
                 if (first):
                     first = False
                     old = tf.transpose(old, perm=[0, 2, 3, 1])
@@ -193,7 +200,8 @@ def main():
             sess.run(update_weight)
             
         # Also, assign the NVlabs Gs dlatent_avg to the w_avg in the taki0112 network
-        new = [x for x in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator") if "avg" in str(x)][0]
+        new = [x for x in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator")
+                if "avg" in str(x)][0]
         old = G.get_var("dlatent_avg")
         update_weight = [tf.assign(new, old)]
         sess.run(update_weight)
