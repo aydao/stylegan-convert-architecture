@@ -125,95 +125,6 @@ def main():
     
     
     
-    #
-    #
-    #   Make a NVlabs StyleGAN network (default initialization)
-    #
-    #
-    
-    # StyleGAN initialization parameters and options, if you care to change them, do so here
-    desc          = "sgan"                                                                 
-    train         = EasyDict(run_func_name="training.training_loop.training_loop")         
-    G             = EasyDict(func_name="training.networks_stylegan.G_style")               
-    D             = EasyDict(func_name="training.networks_stylegan.D_basic")               
-    G_opt         = EasyDict(beta1=0.0, beta2=0.99, epsilon=1e-8)                          
-    D_opt         = EasyDict(beta1=0.0, beta2=0.99, epsilon=1e-8)                          
-    G_loss        = EasyDict(func_name="training.loss.G_logistic_nonsaturating")           
-    D_loss        = EasyDict(func_name="training.loss.D_logistic_simplegp", r1_gamma=10.0) 
-    dataset       = EasyDict()                                                             
-    sched         = EasyDict()                                                             
-    grid          = EasyDict(size="4k", layout="random")                                   
-    metrics       = [metric_base.fid50k]                                                   
-    submit_config = dnnlib.SubmitConfig()                                                  
-    tf_config     = {"rnd.np_random_seed": 1000}                                           
-    drange_net              = [-1,1]
-    G_smoothing_kimg        = 10.0
-    
-    # Dataset.
-    desc += "-"+args.dataset
-    dataset = EasyDict(tfrecord_dir=args.dataset)
-    train.mirror_augment = True
-    
-    # Number of GPUs.
-    gpu_num = args.gpu_num
-    if gpu_num == 1:
-        desc += "-1gpu"; submit_config.num_gpus = 1
-        sched.minibatch_base = 4
-        sched.minibatch_dict = {4: 128, 8: 128, 16: 128, 32: 64, 64: 32, 128: 16, 256: 8, 512: 4}
-    elif gpu_num == 2:
-        desc += "-2gpu"; submit_config.num_gpus = 2
-        sched.minibatch_base = 8
-        sched.minibatch_dict = {4: 256, 8: 256, 16: 128, 32: 64, 64: 32, 128: 16, 256: 8}
-    elif gpu_num == 4:
-        desc += "-4gpu"; submit_config.num_gpus = 4
-        sched.minibatch_base = 16
-        sched.minibatch_dict = {4: 512, 8: 256, 16: 128, 32: 64, 64: 32, 128: 16}
-    elif gpu_num == 8:
-        desc += "-8gpu"; submit_config.num_gpus = 8
-        sched.minibatch_base = 32
-        sched.minibatch_dict = {4: 512, 8: 256, 16: 128, 32: 64, 64: 32}
-    else:
-        print("ERROR: invalid number of gpus:",gpu_num)
-        sys.exit(-1)
-
-    # Default options.
-    train.total_kimg = 0
-    sched.lod_initial_resolution = 8
-    sched.G_lrate_dict = {128: 0.0015, 256: 0.002, 512: 0.003, 1024: 0.003}
-    sched.D_lrate_dict = EasyDict(sched.G_lrate_dict)
-
-    # Initialize dnnlib and TensorFlow.
-    # ctx = dnnlib.RunContext(submit_config, train)
-    tflib.init_tf(tf_config)
-
-    # Construct networks.
-    with tf.device('/gpu:0'):
-        print('Constructing networks...')
-        dataset_resolution = args.img_size
-        dataset_channels = 3 # fairly sure everyone is using 3 channels ... # training_set.shape[0],
-        dataset_label_size = 0 # training_set.label_size,
-        G = tflib.Network('G',
-            num_channels=dataset_channels,
-            resolution=dataset_resolution,
-            label_size=dataset_label_size,
-            **G)
-        D = tflib.Network('D',
-            num_channels=dataset_channels,
-            resolution=dataset_resolution,
-            label_size=dataset_label_size,
-            **D)
-        Gs = G.clone('Gs')
-    G.print_layers(); D.print_layers()
-
-    print('Building TensorFlow graph...')
-    with tf.name_scope('Inputs'), tf.device('/cpu:0'):
-        lod_in          = tf.placeholder(tf.float32, name='lod_in', shape=[])
-        lrate_in        = tf.placeholder(tf.float32, name='lrate_in', shape=[])
-        minibatch_in    = tf.placeholder(tf.int32, name='minibatch_in', shape=[])
-        minibatch_split = minibatch_in // submit_config.num_gpus
-        Gs_beta         = 0.5 ** tf.div(tf.cast(minibatch_in, tf.float32),
-                            G_smoothing_kimg * 1000.0) if G_smoothing_kimg > 0.0 else 0.0
-
     
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
         
@@ -226,19 +137,10 @@ def main():
         # build the taki0112 StyleGAN architecture (vanilla Tensorflow)
         gan = StyleGAN(sess, args)
         
-        # regardless of the setting you choose for the "progressive" argument,
-        # you *must* have a progressive structure to copy over to NVlabs
-        # perhaps with further tinkering you could get around this requirement
-        user_progressive_setting = args.progressive
-        args.progressive = True
-        gan.progressive = True
         
         # you have to go through this process to initialize everything needed to load the checkpoint...
         gan.build_model()
         
-        # now reset the progressive setting to whichever you specified
-        args.progressive = user_progressive_setting
-        gan.progressive = user_progressive_setting
         
         # remove the temp file and the directory if it is empty
         delete_temp_dataset_file(args, dataset_dir, temp_dataset_file)
@@ -247,9 +149,105 @@ def main():
         tflib.init_tf()
         
         tf.global_variables_initializer().run()
+        
+        
+        vars = tf.trainable_variables("discriminator")
+        vars_vals = sess.run(vars)
+        for var, val in zip(vars, vars_vals):
+            print(var.name)
+        
         gan.saver = tf.train.Saver(max_to_keep=10)
         gan.load(checkpoint_dir)
         
+        #
+        #
+        #   Make a NVlabs StyleGAN network (default initialization)
+        #
+        #
+        
+        # StyleGAN initialization parameters and options, if you care to change them, do so here
+        desc          = "sgan"                                                                 
+        train         = EasyDict(run_func_name="training.training_loop.training_loop")         
+        G             = EasyDict(func_name="training.networks_stylegan.G_style")               
+        D             = EasyDict(func_name="training.networks_stylegan.D_basic")               
+        G_opt         = EasyDict(beta1=0.0, beta2=0.99, epsilon=1e-8)                          
+        D_opt         = EasyDict(beta1=0.0, beta2=0.99, epsilon=1e-8)                          
+        G_loss        = EasyDict(func_name="training.loss.G_logistic_nonsaturating")           
+        D_loss        = EasyDict(func_name="training.loss.D_logistic_simplegp", r1_gamma=10.0) 
+        dataset       = EasyDict()                                                             
+        sched         = EasyDict()                                                             
+        grid          = EasyDict(size="4k", layout="random")                                   
+        metrics       = [metric_base.fid50k]                                                   
+        submit_config = dnnlib.SubmitConfig()                                                  
+        tf_config     = {"rnd.np_random_seed": 1000}                                           
+        drange_net              = [-1,1]
+        G_smoothing_kimg        = 10.0
+        
+        # Dataset.
+        desc += "-"+args.dataset
+        dataset = EasyDict(tfrecord_dir=args.dataset)
+        train.mirror_augment = True
+        
+        # Number of GPUs.
+        gpu_num = args.gpu_num
+        if gpu_num == 1:
+            desc += "-1gpu"; submit_config.num_gpus = 1
+            sched.minibatch_base = 4
+            sched.minibatch_dict = {4: 128, 8: 128, 16: 128, 32: 64, 64: 32, 128: 16, 256: 8, 512: 4}
+        elif gpu_num == 2:
+            desc += "-2gpu"; submit_config.num_gpus = 2
+            sched.minibatch_base = 8
+            sched.minibatch_dict = {4: 256, 8: 256, 16: 128, 32: 64, 64: 32, 128: 16, 256: 8}
+        elif gpu_num == 4:
+            desc += "-4gpu"; submit_config.num_gpus = 4
+            sched.minibatch_base = 16
+            sched.minibatch_dict = {4: 512, 8: 256, 16: 128, 32: 64, 64: 32, 128: 16}
+        elif gpu_num == 8:
+            desc += "-8gpu"; submit_config.num_gpus = 8
+            sched.minibatch_base = 32
+            sched.minibatch_dict = {4: 512, 8: 256, 16: 128, 32: 64, 64: 32}
+        else:
+            print("ERROR: invalid number of gpus:",gpu_num)
+            sys.exit(-1)
+
+        # Default options.
+        train.total_kimg = 0
+        sched.lod_initial_resolution = 8
+        sched.G_lrate_dict = {128: 0.0015, 256: 0.002, 512: 0.003, 1024: 0.003}
+        sched.D_lrate_dict = EasyDict(sched.G_lrate_dict)
+
+        # Initialize dnnlib and TensorFlow.
+        # ctx = dnnlib.RunContext(submit_config, train)
+        tflib.init_tf(tf_config)
+
+        # Construct networks.
+        with tf.device('/gpu:0'):
+            print('Constructing networks...')
+            dataset_resolution = args.img_size
+            dataset_channels = 3 # fairly sure everyone is using 3 channels ... # training_set.shape[0],
+            dataset_label_size = 0 # training_set.label_size,
+            G = tflib.Network('G',
+                num_channels=dataset_channels,
+                resolution=dataset_resolution,
+                label_size=dataset_label_size,
+                **G)
+            D = tflib.Network('D',
+                num_channels=dataset_channels,
+                resolution=dataset_resolution,
+                label_size=dataset_label_size,
+                **D)
+            Gs = G.clone('Gs')
+        G.print_layers(); D.print_layers()
+
+        print('Building TensorFlow graph...')
+        with tf.name_scope('Inputs'), tf.device('/cpu:0'):
+            lod_in          = tf.placeholder(tf.float32, name='lod_in', shape=[])
+            lrate_in        = tf.placeholder(tf.float32, name='lrate_in', shape=[])
+            minibatch_in    = tf.placeholder(tf.int32, name='minibatch_in', shape=[])
+            minibatch_split = minibatch_in // submit_config.num_gpus
+            Gs_beta         = 0.5 ** tf.div(tf.cast(minibatch_in, tf.float32),
+                                G_smoothing_kimg * 1000.0) if G_smoothing_kimg > 0.0 else 0.0
+
         
         src_d = "discriminator"
         dst_d = "D"
