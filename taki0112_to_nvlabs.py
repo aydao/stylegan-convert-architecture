@@ -73,7 +73,6 @@ def check_args(args):
 """handle the extra args based on required args"""
 def handle_extra_args(args):
     # these are things you either do not need for this script, or can be set automatically
-    args.start_res = args.img_size
     args.phase = "train"
     # assuming you are not using spectral normalization since NVlabs does not use it
     # you probably *could* figure out how to convert with sn, but it'd take some more tinkering
