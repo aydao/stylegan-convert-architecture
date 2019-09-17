@@ -73,7 +73,6 @@ def check_args(args):
 """handle the extra args based on required args"""
 def handle_extra_args(args):
     # these are things you either do not need for this script, or can be set automatically
-    args.start_res = args.img_size
     args.phase = "train"
     # assuming you are not using spectral normalization since NVlabs does not use it
     # you probably *could* figure out how to convert with sn, but it'd take some more tinkering
@@ -110,7 +109,8 @@ def delete_temp_dataset_file(args, dataset_dir, filename):
 def main():
     #
     #    Usage example:
-    #    python [this_file].py 
+    #    python [this_file].py --kimg ###### --dataset [your data] --gpu_num 1 
+    #       --start_res 8 --img_size 512 --progressive True
     #
     #
     # parse arguments
@@ -121,9 +121,6 @@ def main():
     checkpoint_dir = args.checkpoint_dir
     nvlabs_stylegan_pkl_kimg = args.kimg
     nvlabs_stylegan_pkl_name = "network-snapshot-"+nvlabs_stylegan_pkl_kimg+".pkl"
-    # the taki0112 StyleGAN models expect the following naming prefix
-    
-    
     
     
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
@@ -139,8 +136,12 @@ def main():
         
         
         # you have to go through this process to initialize everything needed to load the checkpoint...
+        original_start_res = args.start_res
+        args.start_res = args.img_size
+        gan.start_res = args.img_size
         gan.build_model()
-        
+        args.start_res = original_start_res
+        gan.start_res = original_start_res
         
         # remove the temp file and the directory if it is empty
         delete_temp_dataset_file(args, dataset_dir, temp_dataset_file)
@@ -161,7 +162,7 @@ def main():
         
         #
         #
-        #   Make a NVlabs StyleGAN network (default initialization)
+        #   Make an NVlabs StyleGAN network (default initialization)
         #
         #
         
