@@ -31,7 +31,6 @@ def parse_args():
     desc = "Convert taki0112 StyleGAN checkpoint to NVlabs StyleGAN pkl (copies over the model weights)"
     parser = argparse.ArgumentParser(description=desc)
 
-    parser.add_argument("--kimg", type=str, help="kimg/iteration of the NVlabs pkl, use format ######")
     parser.add_argument("--cache_dir", type=str, default="./",
                         help="The cache directory to save the NVlabs pkl in")
 
@@ -111,7 +110,7 @@ def delete_temp_dataset_file(args, dataset_dir, filename):
 def main():
     #
     #
-    #   Example usage: python taki0112_reshape_progresive.py --dataset FFHQ --kimg 000002 --start_res 8 --img_size 512
+    #   Example usage: python taki0112_reshape_progresive.py --dataset FFHQ --start_res 8 --img_size 512
     #
     #
     # parse arguments
@@ -120,8 +119,6 @@ def main():
         exit()
     
     checkpoint_dir = args.checkpoint_dir
-    nvlabs_stylegan_pkl_kimg = args.kimg
-    nvlabs_stylegan_pkl_name = "network-snapshot-"+nvlabs_stylegan_pkl_kimg+".pkl"
     
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
         
@@ -162,8 +159,6 @@ def copy_over(args, copy_layers):
     tf.reset_default_graph() 
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
         checkpoint_dir = args.checkpoint_dir
-        nvlabs_stylegan_pkl_kimg = args.kimg
-        nvlabs_stylegan_pkl_name = "network-snapshot-"+nvlabs_stylegan_pkl_kimg+".pkl"
         args.progressive = True
         dataset = args.dataset
         dataset_dir = "./dataset/" + dataset
